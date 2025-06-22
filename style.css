@@ -1,0 +1,129 @@
+/* --- General Style Improvements --- */
+:root {
+  --primary-color: #007acc;
+  --secondary-color: #6c757d;
+  --border-color: #ddd;
+  --shadow-color: rgba(0,0,0,0.08);
+  --background-light: #f7f9fc;
+  --background-white: #fff;
+  --text-dark: #333;
+  --text-light: #fff;
+  --success-color: #28a745;
+  --error-color: #dc3545;
+  --code-bg: #e9ecef;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--background-light);
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  color: var(--text-dark);
+}
+#top-area {
+  display: flex;
+  flex-direction: row;
+  gap: 2rem;
+  align-items: flex-start;
+}
+h1 {
+  text-align: center;
+  color: var(--text-dark);
+  margin-bottom: 1rem;
+}
+#input-area {
+  background: var(--background-white);
+  padding: 1.5rem;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px var(--shadow-color);
+  height: 440px;
+  width: 600px;
+  display: flex;
+  flex-direction: column;
+}
+#input-area label {
+    margin-bottom: 0.5rem;
+    font-weight: bold;
+}
+.button-group {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+}
+.button-group button {
+    flex: 1;
+    padding: 0.75rem;
+    color: var(--text-light);
+    border: none;
+    border-radius: 6px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+.button-primary { background-color: var(--primary-color); }
+.button-primary:hover { background-color: #005f9e; }
+.button-secondary { background-color: var(--secondary-color); }
+.button-secondary:hover { background-color: #5a6268; }
+
+.CodeMirror {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+#table-scroll-wrapper {
+  max-height: 600px; overflow: auto; border: 1px solid var(--border-color); border-radius: 10px; box-shadow: 0 4px 12px var(--shadow-color);
+}
+table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--background-white); text-align: center; }
+th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-color); border-right: 1px solid var(--border-color); white-space: nowrap; }
+tbody tr:nth-child(even) { background-color: var(--background-light); }
+tbody tr:hover { background-color: #eaf6ff; }
+th { background: var(--primary-color); color: var(--text-light); position: sticky; top: 0; z-index: 2; }
+td:first-child, th:first-child { background: var(--background-white); position: sticky; left: 0; z-index: 1; border-right: 1px solid #bbb; font-weight: bold; }
+tbody tr:nth-child(even) td:first-child { background-color: var(--background-light); }
+th:first-child { background: var(--primary-color); z-index: 3; }
+.check { color: var(--success-color); font-weight: bold; font-size: 1.2rem; }
+.cross { color: var(--error-color); font-weight: bold; font-size: 1.2rem; cursor: help; }
+
+#tag-sidebar { width: 350px; height: 440px; overflow-y: auto; background: var(--background-white); padding: 1.5rem; border-radius: 10px; box-shadow: 0 4px 12px var(--shadow-color); }
+#tag-sidebar h2 { margin-top: 0; margin-bottom: 1rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem; }
+#tag-sidebar details { border-bottom: 1px solid var(--border-color); margin-bottom: 0.5rem; }
+#tag-sidebar details[open] summary { margin-bottom: 0.5rem; }
+#tag-sidebar summary { font-weight: bold; font-size: 1.1rem; padding: 0.75rem 0.25rem; cursor: pointer; list-style: none; position: relative; }
+#tag-sidebar summary::before { content: '▶'; position: absolute; left: -1rem; font-size: 0.8em; transition: transform 0.2s; }
+#tag-sidebar details[open] > summary::before { transform: rotate(90deg); }
+.tag-entry { padding: 0.25rem 0.5rem; margin-left: 0.5rem; font-size: 0.9rem; }
+.tag-entry code { background-color: var(--code-bg); padding: 0.2em 0.4em; margin-right: 0.4em; border-radius: 3px; font-size: 85%; color: #333; font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+/* --- Modal Styles --- */
+.modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); z-index: 1000;
+  display: none; align-items: center; justify-content: center;
+}
+.modal-content {
+  background: var(--background-white); padding: 2rem; border-radius: 10px;
+  width: 90%; max-width: 600px; max-height: 80vh;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3); position: relative;
+  display: flex; flex-direction: column;
+}
+.modal-close {
+  position: absolute; top: 1rem; right: 1rem; font-size: 1.5rem;
+  font-weight: bold; cursor: pointer; color: #aaa; line-height: 1;
+}
+.modal-close:hover { color: #333; }
+#port-filter-input {
+  width: 100%; padding: 0.5rem; font-size: 1rem;
+  border: 1px solid var(--border-color); border-radius: 6px;
+  margin-bottom: 1rem;
+}
+#port-list {
+  flex: 1; overflow-y: auto; border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+.port-list-item {
+  padding: 0.75rem; border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+}
+.port-list-item:last-child { border-bottom: none; }
+.port-list-item:hover { background-color: var(--background-light); }

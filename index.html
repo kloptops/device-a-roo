@@ -3,197 +3,53 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Device-A-Roo Too</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
-      padding: 2rem;
-    }
-    h1 {
-      text-align: center;
-      color: #333;
-    }
-    #input-area {
-      max-width: 600px;
-      margin: auto;
-      margin-bottom: 2rem;
-      background: #fff;
-      padding: 1rem;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    textarea {
-      width: 100%;
-      height: 160px;
-      padding: 0.5rem;
-      font-family: monospace;
-      margin-bottom: 1rem;
-      border: 1px solid #ccc;
-      border-radius: 6px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      background: #fff;
-      border-radius: 10px;
-      overflow: hidden;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    th, td {
-      padding: 0.75rem;
-      border: 1px solid #ccc;
-      text-align: center;
-    }
-    th {
-      background: #007acc;
-      color: #fff;
-    }
-    .check {
-      color: green;
-      font-weight: bold;
-    }
-    .cross {
-      color: red;
-      font-weight: bold;
-    }
-  </style>
+  <title>Device-A-Roo</title>
+  
+  <!-- External Dependencies -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/addon/lint/lint.min.css">
+  
+  <!-- Our Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+  
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsonlint@1.6.3/lib/jsonlint.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/addon/lint/lint.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.9/addon/lint/json-lint.min.js"></script>
 </head>
 <body>
-  <h1>Device Firmware Compatibility</h1>
-  <div id="input-area">
-    <label for="requirements">Enter Requirements (JSON array or full port.json):</label>
-    <textarea id="requirements">["!trimui"]</textarea>
-    <button onclick="filterDevices()">Check Compatibility</button>
+  <h1>Device-A-Roo: PortMaster Compatibility Checker</h1>
+  
+  <div id="top-area">
+    <div id="input-area">
+      <label for="requirements">Enter Requirements (JSON array or full port.json):</label>
+      <textarea id="requirements">["!trimui"]</textarea>
+      <div class="button-group">
+        <button class="button-secondary" onclick="openPortModal()">Select Port...</button>
+        <button class="button-primary" onclick="filterDevices()">Check Compatibility</button>
+      </div>
+    </div>
+    <div id="tag-sidebar">
+      <h2>Available Tags</h2>
+      <div id="tag-list"></div>
+    </div>
   </div>
-  <div id="table-container"></div>
+  
+  <div id="table-scroll-wrapper">
+    <div id="table-container"></div>
+  </div>
 
-  <script>
-    let deviceData = {};
-    let runtimesInfo = {};
+  <div id="port-modal" class="modal-overlay" onclick="closePortModal()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <span class="modal-close" onclick="closePortModal()">×</span>
+      <h2>Select a Port</h2>
+      <input type="text" id="port-filter-input" placeholder="Filter by name..." onkeyup="renderPortList(this.value)">
+      <div id="port-list"></div>
+    </div>
+  </div>
 
-    async function fetchDeviceData() {
-      const response = await fetch("https://raw.githubusercontent.com/PortsMaster/PortMaster-Info/refs/heads/main/device_info.json");
-      deviceData = await response.json();
-    }
-
-    async function fetchRuntimesInfo() {
-      const response = await fetch("https://github.com/PortsMaster/PortMaster-New/releases/latest/download/ports.json");
-      const portsJson = await response.json();
-
-      for (const [utilName, utilData] of Object.entries(portsJson.utils || {})) {
-        if (!utilName.endsWith(".squashfs")) continue;
-        if (!runtimesInfo[utilName]) runtimesInfo[utilName] = [];
-        runtimesInfo[utilName].push(utilData.runtime_arch);
-      }
-    }
-
-    function buildRequirements(portInfo) {
-      const attr = portInfo.attr || {};
-      const reqs = Array.isArray(attr.reqs) ? [...attr.reqs] : [];
-      let runtime = attr.runtime;
-
-      if (Array.isArray(runtime) && runtime.length === 0) runtime = null;
-      if (typeof runtime === "string" && (runtime === "" || runtime === "blank")) runtime = null;
-
-      if (runtime !== null) {
-        if (typeof runtime === "string") runtime = [runtime];
-
-        for (let r of runtime) {
-          if (!r.endsWith('.squashfs')) r += '.squashfs';
-          const arches = runtimesInfo[r] || [];
-          if (arches.length > 0) reqs.push(arches.join('|'));
-        }
-      } else {
-        const arch = attr.arch;
-        if (Array.isArray(arch) && arch.length > 0) {
-          reqs.push(arch.join('|'));
-        }
-      }
-
-      return reqs;
-    }
-
-    function matchRequirements(capabilities, requirements) {
-      if (requirements.length === 0) return [true, []];
-      let failedReasons = [];
-
-      for (let req of requirements) {
-        if (req === "") continue;
-
-        let matchNot = true;
-        if (req.startsWith("!")) {
-          matchNot = false;
-          req = req.slice(1);
-        }
-
-        let passed;
-        if (req.includes("|")) {
-          passed = req.split("|").some(r => capabilities.includes(r)) === matchNot;
-        } else {
-          passed = capabilities.includes(req) === matchNot;
-        }
-
-        if (!passed) failedReasons.push((matchNot ? "Requires: " : "Excluded if: ") + req);
-      }
-
-      return [failedReasons.length === 0, failedReasons];
-    }
-
-    function filterDevices() {
-      let rawInput = document.getElementById("requirements").value;
-      let requirements = [];
-
-      try {
-        const parsed = JSON.parse(rawInput);
-        if (Array.isArray(parsed)) {
-          requirements = parsed;
-        } else if (typeof parsed === 'object') {
-          requirements = buildRequirements(parsed);
-        } else {
-          throw new Error();
-        }
-      } catch (e) {
-        alert("Invalid JSON format. Must be a JSON array or port.json object.");
-        return;
-      }
-
-      let allFirmwares = new Set();
-      for (let model in deviceData) {
-        for (let fw in deviceData[model]) {
-          allFirmwares.add(fw);
-        }
-      }
-
-      let html = '<table><thead><tr><th>Device</th>';
-      for (let fw of allFirmwares) html += `<th>${fw}</th>`;
-      html += '</tr></thead><tbody>';
-
-      for (let model in deviceData) {
-        html += `<tr><td>${model}</td>`;
-        for (let fw of allFirmwares) {
-          const info = deviceData[model][fw];
-          if (info) {
-            const [passed, reasons] = matchRequirements(info.capabilities || [], requirements);
-            const tooltip = passed ? '' : ` title="${reasons.join('\n')}"`;
-            html += `<td class="${passed ? 'check' : 'cross'}"${tooltip}>${passed ? '✅' : '❌'}</td>`;
-          } else {
-            html += `<td>—</td>`;
-          }
-        }
-        html += '</tr>';
-      }
-
-      html += '</tbody></table>';
-      document.getElementById("table-container").innerHTML = html;
-    }
-
-    async function init() {
-      await fetchDeviceData();
-      await fetchRuntimesInfo();
-    }
-
-    init();
-  </script>
+  <!-- Our Script (at the end of the body) -->
+  <script src="script.js"></script>
 </body>
 </html>
