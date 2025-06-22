@@ -118,12 +118,9 @@
   let runtimesInfo = {};
   let portsDataGlobal = {};
   let allTags = new Set();
+  let editor; // To be initialized only for the main app
 
-  const editor = CodeMirror.fromTextArea(document.getElementById("requirements"), {
-    mode: "application/json", lineNumbers: true, tabSize: 2,
-    gutters: ["CodeMirror-linenumbers", "CodeMirror-lint-markers"], lint: true,
-  });
-
+  // --- SHARED HELPER FUNCTIONS ---
   async function fetchDeviceData() {
     const response = await fetch("https://raw.githubusercontent.com/PortsMaster/PortMaster-Info/refs/heads/main/device_info.json");
     deviceDataGlobal = await response.json();
@@ -138,11 +135,86 @@
         runtimesInfo[runtimeFilename] = Object.keys(runtimeData.arch);
       }
     }
-    
     const portsResponse = await fetch("https://raw.githubusercontent.com/PortsMaster/PortMaster-Info/refs/heads/main/ports.json");
     portsDataGlobal = await portsResponse.json();
   }
-  
+
+  function getTagDescription(tag) {
+    for (const category in tagDefinitions) {
+      if (tagDefinitions[category][tag]) {
+        return tagDefinitions[category][tag];
+      }
+    }
+    return null;
+  }
+
+  function buildRequirements(portInfo) {
+    const attr = portInfo.attr || {};
+    const reqs = Array.isArray(attr.reqs) ? [...attr.reqs] : [];
+    let runtime = attr.runtime;
+    if (Array.isArray(runtime) && runtime.length === 0) runtime = null;
+    if (typeof runtime === "string" && (runtime === "" || runtime === "blank")) runtime = null;
+    if (runtime !== null) {
+      if (typeof runtime === "string") runtime = [runtime];
+      for (let r of runtime) {
+        if (!r.endsWith('.squashfs')) r += '.squashfs';
+        const arches = runtimesInfo[r] || [];
+        if (arches.length > 0) reqs.push(arches.join('|'));
+      }
+    } else {
+      const arch = portInfo.attr.arch;
+      if (Array.isArray(arch) && arch.length > 0) reqs.push(arch.join('|'));
+    }
+    return reqs;
+  }
+
+  function matchRequirements(capabilities, requirements) {
+    if (requirements.length === 0) return [true, []];
+    let failedReasons = [];
+    for (let req of requirements) {
+      if (req === "") continue;
+      let matchNot = req.startsWith("!");
+      if (matchNot) req = req.slice(1);
+      const passed = req.includes("|")
+        ? req.split("|").some(r => capabilities.includes(r)) === !matchNot
+        : capabilities.includes(req) === !matchNot;
+      if (!passed) failedReasons.push((!matchNot ? "Requires: " : "Excluded if: ") + req);
+    }
+    return [failedReasons.length === 0, failedReasons];
+  }
+
+  function renderGrid(requirements) {
+    const sortedFirmwares = [...new Set(Object.values(deviceDataGlobal).flatMap(Object.keys))].sort();
+    const sortedModels = Object.keys(deviceDataGlobal).sort();
+    
+    let html = '<table><thead><tr><th>Device</th>';
+    sortedFirmwares.forEach(fw => html += `<th>${fw}</th>`);
+    html += '</tr></thead><tbody>';
+
+    for (const model of sortedModels) {
+      html += `<tr><td>${model}</td>`;
+      for (const fw of sortedFirmwares) {
+        const info = deviceDataGlobal[model][fw];
+        if (info) {
+          const [passed, reasons] = matchRequirements(info.capabilities || [], requirements);
+          const descriptiveReasons = reasons.map(reason => {
+            const [prefix, rawTags] = reason.split(': ');
+            const descriptiveTags = rawTags.split('|').map(tag => getTagDescription(tag) || tag).join(' or ');
+            return `${prefix}: ${descriptiveTags}`;
+          });
+          const tooltip = passed ? '' : ` title="${descriptiveReasons.join('\n')}"`;
+          html += `<td class="${passed ? 'check' : 'cross'}"${tooltip}>${passed ? '✅' : '❌'}</td>`;
+        } else {
+          html += `<td>—</td>`;
+        }
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById("table-container").innerHTML = html;
+  }
+
+  // --- MAIN APP (index.html) SPECIFIC FUNCTIONS ---
   function extractAllTags() {
     allTags.clear();
     for (const model in deviceDataGlobal) {
@@ -152,23 +224,10 @@
     }
     renderTagSidebar();
   }
-
-  function getTagDescription(tag) {
-    for (const category in tagDefinitions) {
-        if (tagDefinitions[category][tag]) {
-            return tagDefinitions[category][tag];
-        }
-    }
-    return null;
-  }
   
   function customSort(tags, category) {
-    if (category === "Screen Resolutions") {
-        return tags.sort((a, b) => parseInt(b.split('x')[0], 10) - parseInt(a.split('x')[0], 10));
-    }
-    if (category === "Hardware: RAM") {
-        return tags.sort((a, b) => parseInt(b.replace('gb', ''), 10) - parseInt(a.replace('gb', ''), 10));
-    }
+    if (category === "Screen Resolutions") return tags.sort((a, b) => parseInt(b.split('x')[0], 10) - parseInt(a.split('x')[0], 10));
+    if (category === "Hardware: RAM") return tags.sort((a, b) => parseInt(b.replace('gb', ''), 10) - parseInt(a.replace('gb', ''), 10));
     return tags.sort();
   }
 
@@ -176,9 +235,7 @@
     const container = document.getElementById("tag-list");
     container.innerHTML = '';
     const unknownTags = [];
-    allTags.forEach(tag => {
-        if (getTagDescription(tag) === null) { unknownTags.push(tag); }
-    });
+    allTags.forEach(tag => { if (getTagDescription(tag) === null) { unknownTags.push(tag); } });
     for (const [category, tagsInCategory] of Object.entries(tagDefinitions)) {
         const activeTags = Object.keys(tagsInCategory).filter(tag => allTags.has(tag));
         if (activeTags.length === 0) continue;
@@ -213,78 +270,28 @@
         console.log(JSON.stringify(unknownTags, null, 2));
     }
   }
-
-  function buildRequirements(portInfo) {
-    const attr = portInfo.attr || {};
-    const reqs = Array.isArray(attr.reqs) ? [...attr.reqs] : [];
-    let runtime = attr.runtime;
-
-    if (Array.isArray(runtime) && runtime.length === 0) runtime = null;
-    if (typeof runtime === "string" && (runtime === "" || runtime === "blank")) runtime = null;
-
-    if (runtime !== null) {
-      if (typeof runtime === "string") runtime = [runtime];
-      for (let r of runtime) {
-        if (!r.endsWith('.squashfs')) r += '.squashfs';
-        const arches = runtimesInfo[r] || [];
-        if (arches.length > 0) reqs.push(arches.join('|'));
-      }
-    } else {
-      const arch = portInfo.attr.arch; // Use top-level arch if present
-      if (Array.isArray(arch) && arch.length > 0) {
-        reqs.push(arch.join('|'));
-      }
-    }
-    return reqs;
-  }
-
-  function matchRequirements(capabilities, requirements) {
-    if (requirements.length === 0) return [true, []];
-    let failedReasons = [];
-
-    for (let req of requirements) {
-      if (req === "") continue;
-      let matchNot = req.startsWith("!");
-      if (matchNot) req = req.slice(1);
-
-      const passed = req.includes("|")
-        ? req.split("|").some(r => capabilities.includes(r)) === !matchNot
-        : capabilities.includes(req) === !matchNot;
-
-      if (!passed) failedReasons.push((!matchNot ? "Requires: " : "Excluded if: ") + req);
-    }
-    return [failedReasons.length === 0, failedReasons];
-  }
   
   window.openPortModal = function() {
-    if (!portsDataGlobal.ports) {
-        alert("Port data is still loading, please try again in a moment.");
-        return;
-    }
+    if (!portsDataGlobal.ports) { alert("Port data is still loading, please try again in a moment."); return; }
     document.getElementById("port-filter-input").value = "";
     renderPortList();
     document.getElementById("port-modal").style.display = "flex";
   }
 
-  window.closePortModal = function() {
-    document.getElementById("port-modal").style.display = "none";
-  }
+  window.closePortModal = function() { document.getElementById("port-modal").style.display = "none"; }
 
   window.renderPortList = function(filter = "") {
     const listContainer = document.getElementById("port-list");
     listContainer.innerHTML = "";
     const filterLower = filter.toLowerCase();
-
     const sortedPortIds = Object.keys(portsDataGlobal.ports).sort((a, b) => {
         const nameA = (portsDataGlobal.ports[a].attr.title || a).toLowerCase();
         const nameB = (portsDataGlobal.ports[b].attr.title || b).toLowerCase();
         return nameA.localeCompare(nameB);
     });
-
     for (const portId of sortedPortIds) {
         const port = portsDataGlobal.ports[portId];
         const portName = port.attr.title || portId;
-
         if (portName.toLowerCase().includes(filterLower)) {
             const item = document.createElement("div");
             item.className = "port-list-item";
@@ -299,13 +306,9 @@
     const originalPortData = portsDataGlobal.ports[portId];
     if (originalPortData) {
         const portDataForEditor = JSON.parse(JSON.stringify(originalPortData));
-
         delete portDataForEditor.source;
         delete portDataForEditor.rating;
-        if (portDataForEditor.attr) {
-            delete portDataForEditor.attr.avail;
-        }
-
+        if (portDataForEditor.attr) { delete portDataForEditor.attr.avail; }
         editor.getDoc().setValue(JSON.stringify(portDataForEditor, null, 2));
         closePortModal();
         filterDevices();
@@ -315,7 +318,6 @@
   window.filterDevices = function () {
     let rawInput = editor.getValue();
     let requirements = [];
-
     try {
       const parsed = JSON.parse(rawInput);
       if (Array.isArray(parsed)) requirements = parsed;
@@ -325,45 +327,71 @@
       alert("Cannot check compatibility: The input is not valid JSON.\nPlease fix the errors indicated in the editor.");
       return;
     }
-
-    const sortedFirmwares = [...new Set(Object.values(deviceDataGlobal).flatMap(Object.keys))].sort();
-    const sortedModels = Object.keys(deviceDataGlobal).sort();
-    
-    let html = '<table><thead><tr><th>Device</th>';
-    sortedFirmwares.forEach(fw => html += `<th>${fw}</th>`);
-    html += '</tr></thead><tbody>';
-
-    for (const model of sortedModels) {
-      html += `<tr><td>${model}</td>`;
-      for (const fw of sortedFirmwares) {
-        const info = deviceDataGlobal[model][fw];
-        if (info) {
-          const [passed, reasons] = matchRequirements(info.capabilities || [], requirements);
-          const descriptiveReasons = reasons.map(reason => {
-            const [prefix, rawTags] = reason.split(': ');
-            const descriptiveTags = rawTags.split('|').map(tag => getTagDescription(tag) || tag).join(' or ');
-            return `${prefix}: ${descriptiveTags}`;
-          });
-          const tooltip = passed ? '' : ` title="${descriptiveReasons.join('\n')}"`;
-          html += `<td class="${passed ? 'check' : 'cross'}"${tooltip}>${passed ? '✅' : '❌'}</td>`;
-        } else {
-          html += `<td>—</td>`;
-        }
-      }
-      html += '</tr>';
-    }
-    html += '</tbody></table>';
-    document.getElementById("table-container").innerHTML = html;
+    renderGrid(requirements);
   };
   
+  // --- PAGE-SPECIFIC INITIALIZERS ---
+  function initMainApp() {
+    editor = CodeMirror.fromTextArea(document.getElementById("requirements"), {
+      mode: "application/json", lineNumbers: true, tabSize: 2,
+      gutters: ["CodeMirror-linenumbers", "CodeMirror-lint-markers"], lint: true,
+    });
+    extractAllTags();
+    filterDevices();
+  }
+
+  function initPortViewer() {
+    const urlParams = new URLSearchParams(window.location.search);
+    let portName = urlParams.get('port');
+    const titleElement = document.getElementById('port-title');
+
+    function showError(message) {
+      titleElement.textContent = message;
+      titleElement.style.color = 'var(--error-color)';
+    }
+
+    if (!portName) {
+      showError("Error: No port specified. Add '?port=yourport.zip' to the URL.");
+      return;
+    }
+
+    if (!portName.endsWith('.zip')) portName += '.zip';
+
+    const portInfo = portsDataGlobal.ports[portName];
+
+    if (!portInfo) {
+      showError(`Error: Port '${portName}' not found.`);
+      return;
+    }
+
+    titleElement.textContent = `Compatibility for ${portInfo.attr.title}`;
+    console.log(JSON.stringify(portInfo, null, 2))
+
+    const requirements = buildRequirements(portInfo);
+
+    console.log(JSON.stringify(requirements, null, 2))
+    renderGrid(requirements);
+  }
+
+  // --- GLOBAL ENTRY POINT ---
   async function init() {
     try {
       await Promise.all([fetchDeviceData(), fetchPortsAndRuntimes()]);
-      extractAllTags();
-      filterDevices();
+      
+      // Route to the correct initializer based on the page's content
+      if (document.getElementById('input-area')) {
+        initMainApp();
+      } else if (document.getElementById('port-title')) {
+        initPortViewer();
+      }
     } catch (error) {
       console.error("Failed to initialize application:", error);
-      alert("Failed to fetch necessary data. Please check your internet connection and the browser console for more details. If you are running this from a local file, you must use a local web server.");
+      const title = document.getElementById('port-title');
+      if (title) {
+        title.textContent = "Error loading data.";
+        title.style.color = 'var(--error-color)';
+      }
+      alert("Failed to fetch necessary data. Please check the browser console for more details.");
     }
   }
 
