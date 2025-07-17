@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenMW Config Pruner</title>
+    
+    <!-- CodeMirror Core CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css">
+    <!-- CodeMirror Theme -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/theme/material-darker.min.css">
+    
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+        }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #444;
+            padding-bottom: 15px;
+        }
+        h1 {
+            margin: 0;
+        }
+        p {
+            color: #aaa;
+        }
+        .editors-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .editor-container, .output-container {
+            display: flex;
+            flex-direction: column;
+        }
+        h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+            color: #00aaff;
+            font-weight: 500;
+        }
+        .CodeMirror {
+            border: 1px solid #444;
+            border-radius: 5px;
+            height: 350px;
+            font-size: 14px;
+        }
+        .button-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        #prune-btn {
+            padding: 12px 25px;
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            background-color: #007acc;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        #prune-btn:hover {
+            background-color: #005f9e;
+        }
+        #pruned-config-editor .CodeMirror {
+            background-color: #263238; /* Material Darker theme bg */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>OpenMW Settings.cfg Pruner</h1>
+            <p>Removes settings from the "Altered Config" that are identical to the "Base Config".</p>
+        </header>
+
+        <div class="editors-grid">
+            <div class="editor-container">
+                <h2>Base Config (e.g., openmw.ROCKNIX.cfg)</h2>
+                <textarea id="base-config">
+# This is a base config file
+[Video]
+resolution x = 640
+resolution y = 480
+antialiasing = none
+
+[Sound]
+# Master volume is consistent across devices
+master volume = 1.0
+</textarea>
+            </div>
+            <div class="editor-container">
+                <h2>Altered Config (e.g., your full settings.cfg)</h2>
+                <textarea id="altered-config">
+# My full configuration file
+[Video]
+resolution x = 640
+resolution y = 480
+# I prefer this setting, it's different from base
+antialiasing = ssaa 
+fullscreen = true
+
+[Sound]
+# Master volume is consistent across devices
+master volume = 1.0
+music volume = 0.75
+
+[GUI]
+scaling factor = 1.25
+</textarea>
+            </div>
+        </div>
+
+        <div class="button-container">
+            <button id="prune-btn">Prune</button>
+        </div>
+
+        <div class="output-container">
+            <h2>Pruned Config (The result with only the changes)</h2>
+            <div id="pruned-config-editor">
+                <textarea id="pruned-config"></textarea>
+            </div>
+        </div>
+    </div>
+
+    <!-- CodeMirror Core JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"></script>
+    <!-- CodeMirror INI Mode -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/addon/ini/ini.min.js"></script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Initialize CodeMirror editors
+            const baseEditor = CodeMirror.fromTextArea(document.getElementById('base-config'), {
+                lineNumbers: true,
+                mode: 'ini', // Corrected
+                theme: 'material-darker'
+            });
+
+            const alteredEditor = CodeMirror.fromTextArea(document.getElementById('altered-config'), {
+                lineNumbers: true,
+                mode: 'ini', // Corrected
+                theme: 'material-darker'
+            });
+
+            const prunedEditor = CodeMirror.fromTextArea(document.getElementById('pruned-config'), {
+                lineNumbers: true,
+                mode: 'ini', // Corrected
+                theme: 'material-darker',
+                readOnly: true
+            });
+
+            const pruneBtn = document.getElementById('prune-btn');
+            pruneBtn.addEventListener('click', () => {
+                const baseText = baseEditor.getValue();
+                const alteredText = alteredEditor.getValue();
+                const result = pruneConfig(baseText, alteredText);
+                prunedEditor.setValue(result);
+            });
+
+            // --- Core Pruning Logic ---
+
+            const SECTION_RE = /^\s*\[(.+?)\]\s*$/;
+            const ACTIVE_OPTION_RE = /^\s*([^#;].*?)\s*=\s*(.*)$/;
+
+            /**
+             * Parses a config text into a simple {section: {key: value}} object.
+             * @param {string} text The config file content.
+             * @returns {object} A map of the configuration.
+             */
+            function parseConfigForComparison(text) {
+                const configData = {};
+                let currentSection = null;
+                const lines = text.split('\n');
+
+                for (const line of lines) {
+                    const sectionMatch = line.match(SECTION_RE);
+                    if (sectionMatch) {
+                        currentSection = sectionMatch[1].trim();
+                        if (!configData[currentSection]) {
+                            configData[currentSection] = {};
+                        }
+                        continue;
+                    }
+
+                    if (!currentSection) continue;
+
+                    const activeMatch = line.match(ACTIVE_OPTION_RE);
+                    if (activeMatch) {
+                        const key = activeMatch[1].trim();
+                        const value = activeMatch[2].trim();
+                        configData[currentSection][key] = value;
+                    }
+                }
+                return configData;
+            }
+
+            /**
+             * The main function to prune the altered config based on the base config.
+             * @param {string} baseText The content of the base config file.
+             * @param {string} alteredText The content of the config file to be pruned.
+             * @returns {string} The pruned configuration text.
+             */
+            function pruneConfig(baseText, alteredText) {
+                const referenceData = parseConfigForComparison(baseText);
+                const alteredLines = alteredText.split('\n');
+                
+                const prunedSections = {};
+                let currentSection = null;
+                let fileHeaderLines = [];
+
+                // 1. Re-build the altered config, skipping identical lines
+                for (const line of alteredLines) {
+                    const sectionMatch = line.match(SECTION_RE);
+                    if (sectionMatch) {
+                        currentSection = sectionMatch[1].trim();
+                        if (!prunedSections[currentSection]) {
+                            prunedSections[currentSection] = { header: line, lines: [] };
+                        }
+                        continue;
+                    }
+
+                    if (!currentSection) {
+                        fileHeaderLines.push(line);
+                        continue;
+                    }
+
+                    const activeMatch = line.match(ACTIVE_OPTION_RE);
+                    if (activeMatch) {
+                        const key = activeMatch[1].trim();
+                        const value = activeMatch[2].trim();
+                        
+                        const baseValue = referenceData[currentSection] ? referenceData[currentSection][key] : undefined;
+                        
+                        if (baseValue === value) {
+                            // Prune this line by skipping it
+                            continue;
+                        }
+                    }
+                    
+                    // Keep the line (it's a comment, a blank line, or a modified option)
+                    prunedSections[currentSection].lines.push(line);
+                }
+
+                // 2. Reconstruct the output, removing empty sections
+                let finalLines = fileHeaderLines.filter(line => line.trim() !== '');
+                
+                for (const sectionName in prunedSections) {
+                    const content = prunedSections[sectionName];
+                    const hasActiveOptions = content.lines.some(line => ACTIVE_OPTION_RE.test(line));
+
+                    if (hasActiveOptions) {
+                        if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') {
+                            finalLines.push(''); // Add spacing
+                        }
+                        finalLines.push(content.header.trim());
+                        finalLines.push(...content.lines);
+                    }
+                }
+
+                return finalLines.join('\n');
+            }
+        });
+    </script>
+</body>
+</html>
